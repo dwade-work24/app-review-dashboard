@@ -31,7 +31,6 @@ input,select{border-color:#d6dadd;border-radius:3px}.stars{color:var(--ink)}.tra
 .metric-highlight{font-weight:700;background:#eaf2ef;box-shadow:inset 0 -2px #298044}
 .metric-highlight.adverse{background:#fff0f1;box-shadow:inset 0 -2px #d62e35}
 .metric-highlight.category-top{background:#eef2f7;box-shadow:inset 0 -2px #506683}
-.metric-label{display:block;font-size:10px;font-weight:400;white-space:nowrap;margin-top:3px;color:#46525d}
 .mix-grid{grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch}
 .mix-panel{min-width:0}.mix-heading{height:128px}.mix-heading h3{margin:12px 0}.mix-heading .note{min-height:38px;margin:6px 0}.mix-heading .legend{font-size:11px;margin:8px 0}
 .mix-label{margin:14px 0 8px;font-size:13px}.mix-panel .sentimentbar{margin:0 0 18px}
