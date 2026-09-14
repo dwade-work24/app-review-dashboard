@@ -3,6 +3,59 @@
 let all=[], applicationDefinitions=[], coverageData=[], categoryDefinitions=[], categoryLabels={};
 const $=id=>document.getElementById(id),fmt=n=>n.toLocaleString(),pct=(n,d)=>d?(100*n/d).toFixed(1)+'%':'—';
 
+// Analytics is optional. Never pass source reviews or user-entered text here.
+const analyticsConfig = {"debug": false, "enabled": true, "measurement_id": "G-HXFE2VD7FT", "provider": "ga4"};
+const analyticsEvents = Object.freeze({app:'app_selected', explorer:'review_explorer_opened', search:'review_search_used'});
+const analyticsOnce = new Set();
+let analyticsReady = false;
+function trackEvent(name, params = {}) {
+  try {
+    if (!analyticsConfig.enabled || !Object.values(analyticsEvents).includes(name)) return;
+    const app = applicationDefinitions.find(a => a.key === params.app_key);
+    if (!app) return;
+    // Construct an allowlisted payload; discard all caller-supplied extra fields.
+    const safe = {app_key:app.key};
+    if (name === analyticsEvents.app) safe.app_name = app.display_name;
+    if (analyticsConfig.debug) console.debug('[analytics]', name, safe);
+    if (!analyticsReady || typeof window.gtag !== 'function') return;
+    window.gtag('event', name, safe);
+  } catch (_) { /* Blockers or tag errors must never affect the dashboard. */ }
+}
+function trackOnce(name, key) {
+  const id = name + ':' + key;
+  if (analyticsOnce.has(id)) return;
+  analyticsOnce.add(id);
+  trackEvent(name, {app_key:key});
+}
+function initializeAnalytics() {
+
+  try {
+    if (!analyticsConfig.enabled || analyticsReady || typeof window === 'undefined') return;
+    // Local previews never send visits or test searches to the live property.
+    if (!['https:', 'http:'].includes(window.location.protocol) ||
+        ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)) return;
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = window.gtag || function(){window.dataLayer.push(arguments);};
+    window.gtag('js', new Date());
+    window.gtag('config', analyticsConfig.measurement_id, {
+      send_page_view:true,
+      page_location:window.location.origin + window.location.pathname,
+      page_referrer:document.referrer ? new URL(document.referrer).origin + '/' : '',
+      page_title:'Connected Home App — Customer Review Intelligence',
+      allow_google_signals:false,
+      allow_ad_personalization_signals:false,
+      ...(analyticsConfig.debug ? {debug_mode:true} : {})
+    });
+    const tag = document.createElement('script');
+    tag.async = true;
+    tag.src = 'https://www.googletagmanager.com/gtag/js?id=' + analyticsConfig.measurement_id;
+    tag.referrerPolicy = 'origin';
+    tag.onerror = () => {analyticsReady = false;};
+    document.head.append(tag);
+    analyticsReady = true;
+  } catch (_) { analyticsReady = false; }
+
+}
 let selected=[],page=0;const size=20;
 const count=a=>a.reduce((n,r)=>n+(r.n??1),0);
 function stats(a){return {n:count(a),avg:count(a)?(a.reduce((s,r)=>s+r.rating*(r.n??1),0)/count(a)).toFixed(2):'—',low:count(a.filter(r=>r.rating<=2)),high:count(a.filter(r=>r.rating>=4))}}
@@ -20,7 +73,7 @@ function renderSentiment(){const labels=['positive','neutral','negative','unscor
 function renderCoverage(key){$('detailcoverage').replaceChildren();for(const c of coverageData.filter(c=>c.application_key===key)){const box=el('div');box.append(el('h3',c.application_name+' · '+c.store),el('p',`${c.unique_written_reviews} written reviews · ${c.country||'—'}/${c.language||'not specified'} · ${c.earliest||'—'} — ${c.latest||'—'}`,'muted'),el('p',`Retrieved ${c.retrieved_at||'—'} · Latest attempt ${c.collection_timestamp||'—'} · ${c.status} / ${c.stop_reason||'—'}`,'note'),el('p',c.method+' · '+c.limitations,'note'));if(c.error)box.append(el('p',c.error,'note'));$('detailcoverage').append(box)}}
 function renderCategories(base){$('categorysummary').replaceChildren();for(const category of categoryDefinitions){const rows=base.filter(r=>r.feedback_category===category.id),s=stats(rows),tr=el('tr'),cell=el('td'),button=el('button',category.label);button.style.cssText='margin:0;text-align:left;background:white;border:0;padding:0;color:var(--brand)';button.onclick=()=>{$('category').value=category.id;render()};cell.append(button);tr.append(cell);for(const value of [fmt(s.n),pct(s.n,count(base)),s.avg,['positive','neutral','negative'].map(c=>fmt(count(rows.filter(r=>r.sentiment===c)))).join(' / ')])tr.append(el('td',value));$('categorysummary').append(tr)}const flagged=count(base.filter(r=>r.category_review_needed));$('categoryflags').textContent=`${fmt(flagged)} reviews have tied primary-topic matches or no specific match and are flagged for review. Primary totals sum to ${fmt(count(base))} reviews. Additional tags are not included in these totals.`}
 function renderReviews(){if(!reviewCache[activeKey]){ $('results').textContent='Open the explorer to load reviews for this application.'; $('reviews').replaceChildren(); $('page').textContent=''; $('prev').disabled=$('next').disabled=true; return; } const q=$('search').value.trim().toLowerCase();let a=reviewCache[activeKey].filter(inDates).filter(r=>(!$('store').value||r.store===$('store').value)&&(!$('category').value||r.feedback_category===$('category').value)).filter(r=>(!$('sentimentfilter').value||r.sentiment===$('sentimentfilter').value)&&(!$('rating').value||r.rating===Number($('rating').value))&&(!$('version').value||(r.app_version||'(unknown)')===$('version').value)&&(!q||[r.title,r.body,r.author,r.developer_response].join(' ').toLowerCase().includes(q)));const sort=$('sort').value;a.sort((a,b)=>sort==='lowest'?a.rating-b.rating||b.review_date.localeCompare(a.review_date):sort==='highest'?b.rating-a.rating||b.review_date.localeCompare(a.review_date):sort==='oldest'?a.review_date.localeCompare(b.review_date):b.review_date.localeCompare(a.review_date));const pages=Math.ceil(a.length/size);page=Math.max(0,Math.min(page,pages-1));$('results').textContent=fmt(a.length)+' matching written reviews';$('reviews').replaceChildren();for(const r of a.slice(page*size,(page+1)*size)){const article=el('article');article.style.cssText='border-top:1px solid var(--line);padding:18px 0';const meta=el('div');meta.append(el('span',r.rating+' / 5 ★','stars'),document.createTextNode('  '),el('span',(r.store==='apple'?'Apple':'Google')+' · '+r.review_date.slice(0,10)+' · v'+(r.app_version||'unknown'),'pill'));meta.append(el('span',r.sentiment+' · '+(r.sentiment_score===null?'unscored':r.sentiment_score.toFixed(3)),'pill sentimentbadge'));article.append(meta,el('div',r.title,'reviewtitle'),el('p',r.body,'reviewbody'),el('div',r.author||'Anonymous','muted'));if(r.developer_response){const detail=el('details');detail.append(el('summary','Developer response'),el('p',r.developer_response,'reviewbody'));article.append(detail)}const tags=el('div',categoryLabels[r.feedback_category]+(r.additional_categories.length?' · Also: '+r.additional_categories.map(c=>categoryLabels[c]).join(', '):''),'muted');article.append(tags);const evidence=el('details');evidence.append(el('summary',r.category_review_needed?'Category evidence · review suggested':'Category evidence'),el('p',r.category_rationale));for(const [id,snippets] of Object.entries(r.category_evidence))evidence.append(el('p',categoryLabels[id]+': '+snippets.join(' … '),'reviewbody'));article.append(evidence);$('reviews').append(article)}if(!a.length)$('reviews').append(el('p','No matching reviews. Try a broader search.','empty'));$('page').textContent=pages?`Page ${page+1} of ${pages}`:'No results';$('prev').disabled=page===0;$('next').disabled=page+1>=pages}
-for(const id of ['store','from','to','category'])$(id).addEventListener('change',render);for(const id of ['search','rating','version','sort','sentimentfilter'])$(id).addEventListener('input',()=>{page=0;return ensureReviews()});$('prev').onclick=()=>{page--;renderReviews()};$('next').onclick=()=>{page++;renderReviews()};$('reset').onclick=()=>{for(const id of ['store','from','to','search','rating','version','sentimentfilter','category'])$(id).value='';$('sort').value='newest';render()};
+for(const id of ['store','from','to','category'])$(id).addEventListener('change',render);for(const id of ['search','rating','version','sort','sentimentfilter'])$(id).addEventListener('input',()=>{page=0;if(id==='search' && $('search').value.trim())trackOnce(analyticsEvents.search,activeKey);return ensureReviews()});$('prev').onclick=()=>{page--;renderReviews()};$('next').onclick=()=>{page++;renderReviews()};$('reset').onclick=()=>{for(const id of ['store','from','to','search','rating','version','sentimentfilter','category'])$(id).value='';$('sort').value='newest';render()};
 const dashboardCache=Object.create(null), reviewCache=Object.create(null), pending=new Map();
 let activeKey='', switchToken=0;
 async function fetchJSON(path){
@@ -51,6 +104,7 @@ async function selectApplication(){
 async function ensureReviews(){
   const key=activeKey;
   if(!key)return;
+  trackOnce(analyticsEvents.explorer,key);
   $('results').textContent='Loading reviews…';
   try{
     await cached(reviewCache,key,'reviews');
@@ -65,10 +119,14 @@ async function start(){
     // This fragment is generated by our autoescaped Jinja template, never review HTML.
     $('overview-root').innerHTML=summary.overview_html;
     $('generated').textContent='Generated '+summary.generated_at+' · '+fmt(summary.competitive.total)+' reviews in the saved corpus';
-    $('application').addEventListener('change',selectApplication);
+    $('application').addEventListener('change',()=>{
+      if($('application').value!==activeKey)trackEvent(analyticsEvents.app,{app_key:$('application').value});
+      return selectApplication();
+    });
     $('load-reviews').onclick=ensureReviews;
     $('retry-app').onclick=selectApplication;
     await selectApplication();
   }catch(error){$('startup-status').textContent='Summary data could not be loaded. Refresh the page to try again.';}
 }
+initializeAnalytics();
 start();
